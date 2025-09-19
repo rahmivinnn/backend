@@ -1,0 +1,65 @@
+{{- if .Values.app.persistence.logs.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "higgs-domino.fullname" . }}-logs
+  labels:
+    {{- include "higgs-domino.labels" . | nindent 4 }}
+    app.kubernetes.io/component: logs
+  {{- with .Values.app.persistence.logs.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- range .Values.app.persistence.logs.accessModes }}
+    - {{ . | quote }}
+    {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.app.persistence.logs.size | quote }}
+  {{- if .Values.app.persistence.logs.storageClass }}
+  {{- if (eq "-" .Values.app.persistence.logs.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.app.persistence.logs.storageClass | quote }}
+  {{- end }}
+  {{- end }}
+  {{- if .Values.app.persistence.logs.selector }}
+  selector:
+    {{- toYaml .Values.app.persistence.logs.selector | nindent 4 }}
+  {{- end }}
+---
+{{- end }}
+{{- if .Values.app.persistence.uploads.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "higgs-domino.fullname" . }}-uploads
+  labels:
+    {{- include "higgs-domino.labels" . | nindent 4 }}
+    app.kubernetes.io/component: uploads
+  {{- with .Values.app.persistence.uploads.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- range .Values.app.persistence.uploads.accessModes }}
+    - {{ . | quote }}
+    {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.app.persistence.uploads.size | quote }}
+  {{- if .Values.app.persistence.uploads.storageClass }}
+  {{- if (eq "-" .Values.app.persistence.uploads.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.app.persistence.uploads.storageClass | quote }}
+  {{- end }}
+  {{- end }}
+  {{- if .Values.app.persistence.uploads.selector }}
+  selector:
+    {{- toYaml .Values.app.persistence.uploads.selector | nindent 4 }}
+  {{- end }}
+{{- end }}

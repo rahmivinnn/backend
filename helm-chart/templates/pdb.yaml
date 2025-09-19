@@ -1,0 +1,18 @@
+{{- if .Values.app.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "higgs-domino.fullname" . }}
+  labels:
+    {{- include "higgs-domino.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.app.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.app.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  {{- if .Values.app.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.app.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "higgs-domino.selectorLabels" . | nindent 6 }}
+{{- end }}

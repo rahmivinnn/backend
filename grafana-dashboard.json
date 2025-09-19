@@ -1,0 +1,283 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Higgs Domino - System Overview",
+    "tags": ["higgs-domino", "gaming", "monitoring"],
+    "style": "dark",
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "System Health",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "up{job=\"higgs-domino-app\"}",
+            "legendFormat": "App Status"
+          },
+          {
+            "expr": "up{job=\"postgres\"}",
+            "legendFormat": "Database Status"
+          },
+          {
+            "expr": "up{job=\"redis\"}",
+            "legendFormat": "Cache Status"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Active Users",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "higgs_domino_active_users_total",
+            "legendFormat": "Active Users"
+          },
+          {
+            "expr": "higgs_domino_websocket_connections_total",
+            "legendFormat": "WebSocket Connections"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Game Statistics",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "higgs_domino_active_games_total",
+            "legendFormat": "Active Games"
+          },
+          {
+            "expr": "rate(higgs_domino_games_created_total[5m])",
+            "legendFormat": "Games Created/min"
+          },
+          {
+            "expr": "rate(higgs_domino_games_completed_total[5m])",
+            "legendFormat": "Games Completed/min"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+      },
+      {
+        "id": 4,
+        "title": "HTTP Request Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[5m])",
+            "legendFormat": "{{method}} {{route}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+      },
+      {
+        "id": 5,
+        "title": "Response Time",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_ms_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(http_request_duration_ms_bucket[5m]))",
+            "legendFormat": "50th percentile"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+      },
+      {
+        "id": 6,
+        "title": "Error Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\"}[5m])",
+            "legendFormat": "5xx Errors"
+          },
+          {
+            "expr": "rate(http_requests_total{status=~\"4..\"}[5m])",
+            "legendFormat": "4xx Errors"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+      },
+      {
+        "id": 7,
+        "title": "Database Performance",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "higgs_domino_db_query_duration_ms",
+            "legendFormat": "Query Duration"
+          },
+          {
+            "expr": "higgs_domino_db_connections_active",
+            "legendFormat": "Active Connections"
+          },
+          {
+            "expr": "higgs_domino_db_connections_idle",
+            "legendFormat": "Idle Connections"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24}
+      },
+      {
+        "id": 8,
+        "title": "Cache Performance",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "higgs_domino_cache_hits_total",
+            "legendFormat": "Cache Hits"
+          },
+          {
+            "expr": "higgs_domino_cache_misses_total",
+            "legendFormat": "Cache Misses"
+          },
+          {
+            "expr": "higgs_domino_cache_memory_usage_bytes",
+            "legendFormat": "Memory Usage"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24}
+      },
+      {
+        "id": 9,
+        "title": "Revenue Metrics",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "higgs_domino_revenue_total",
+            "legendFormat": "Total Revenue"
+          },
+          {
+            "expr": "rate(higgs_domino_transactions_total[1h])",
+            "legendFormat": "Transactions/hour"
+          },
+          {
+            "expr": "higgs_domino_subscription_revenue_total",
+            "legendFormat": "Subscription Revenue"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32}
+      },
+      {
+        "id": 10,
+        "title": "Security Events",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(higgs_domino_security_events_total[5m])",
+            "legendFormat": "{{event_type}}"
+          },
+          {
+            "expr": "higgs_domino_blocked_ips_total",
+            "legendFormat": "Blocked IPs"
+          },
+          {
+            "expr": "rate(higgs_domino_failed_logins_total[5m])",
+            "legendFormat": "Failed Logins/min"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32}
+      },
+      {
+        "id": 11,
+        "title": "System Resources",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "process_resident_memory_bytes",
+            "legendFormat": "Memory Usage"
+          },
+          {
+            "expr": "rate(process_cpu_seconds_total[5m]) * 100",
+            "legendFormat": "CPU Usage %"
+          },
+          {
+            "expr": "nodejs_heap_size_used_bytes",
+            "legendFormat": "Heap Used"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40}
+      },
+      {
+        "id": 12,
+        "title": "Top Players",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "topk(10, higgs_domino_user_score)",
+            "legendFormat": "{{username}}",
+            "format": "table"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40}
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {
+      "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "1d"]
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "instance",
+          "type": "query",
+          "query": "label_values(up, instance)",
+          "refresh": 1,
+          "includeAll": true,
+          "multi": true
+        },
+        {
+          "name": "job",
+          "type": "query",
+          "query": "label_values(up, job)",
+          "refresh": 1,
+          "includeAll": true,
+          "multi": true
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "name": "Deployments",
+          "datasource": "Prometheus",
+          "expr": "higgs_domino_deployment_timestamp",
+          "titleFormat": "Deployment",
+          "textFormat": "Version {{version}}"
+        }
+      ]
+    },
+    "refresh": "30s",
+    "schemaVersion": 27,
+    "version": 1,
+    "links": [
+      {
+        "title": "Game Analytics Dashboard",
+        "url": "/d/game-analytics",
+        "type": "dashboards"
+      },
+      {
+        "title": "Business Intelligence Dashboard",
+        "url": "/d/business-intelligence",
+        "type": "dashboards"
+      },
+      {
+        "title": "Security Dashboard",
+        "url": "/d/security",
+        "type": "dashboards"
+      }
+    ]
+  },
+  "overwrite": true
+}

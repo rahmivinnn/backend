@@ -1,0 +1,149 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "higgs-domino.fullname" . }}
+  labels:
+    {{- include "higgs-domino.labels" . | nindent 4 }}
+data:
+  # JWT Configuration
+  jwt-expires-in: "24h"
+  jwt-refresh-expires-in: "7d"
+  
+  # Security Configuration
+  rate-limit-window-ms: "900000"  # 15 minutes
+  rate-limit-max-requests: "100"
+  bcrypt-rounds: "12"
+  session-timeout: "3600000"  # 1 hour
+  max-login-attempts: "5"
+  lockout-time: "900000"  # 15 minutes
+  
+  # Cache Configuration
+  cache-ttl: "3600"  # 1 hour
+  cache-max-size: "1000"
+  cache-check-period: "600"  # 10 minutes
+  
+  # Game Configuration
+  max-players-per-room: "4"
+  game-timeout: "1800000"  # 30 minutes
+  turn-timeout: "30000"  # 30 seconds
+  min-bet-amount: "1000"
+  max-bet-amount: "1000000"
+  daily-bonus-amount: "5000"
+  referral-bonus: "10000"
+  
+  # VIP Configuration
+  vip-levels: "5"
+  vip-multiplier-base: "1.1"
+  vip-bonus-percentage: "10"
+  
+  # Lucky Wheel Configuration
+  wheel-spin-cost: "1000"
+  wheel-free-spins-daily: "3"
+  wheel-jackpot-chance: "0.01"
+  
+  # Tournament Configuration
+  tournament-entry-fee: "5000"
+  tournament-min-players: "8"
+  tournament-max-players: "64"
+  tournament-duration: "3600000"  # 1 hour
+  
+  # Subscription Configuration
+  subscription-monthly-price: "9.99"
+  subscription-yearly-price: "99.99"
+  subscription-benefits-multiplier: "2.0"
+  
+  # Email Configuration
+  email-host: "smtp.gmail.com"
+  email-port: "587"
+  email-secure: "false"
+  email-from: "noreply@higgs-domino.com"
+  email-from-name: "Higgs Domino"
+  
+  # File Upload Configuration
+  upload-max-size: "52428800"  # 50MB
+  upload-allowed-types: "image/jpeg,image/png,image/gif,image/webp"
+  upload-path: "/app/uploads"
+  
+  # Social Features Configuration
+  friend-request-limit: "50"
+  chat-message-limit: "100"
+  chat-rate-limit: "10"  # messages per minute
+  
+  # Analytics Configuration
+  analytics-batch-size: "100"
+  analytics-flush-interval: "30000"  # 30 seconds
+  analytics-retention-days: "90"
+  
+  # Monitoring Configuration
+  log-level: "info"
+  metrics-enabled: "true"
+  health-check-interval: "30000"  # 30 seconds
+  performance-monitoring: "true"
+  
+  # External APIs Configuration
+  api-timeout: "30000"  # 30 seconds
+  api-retry-attempts: "3"
+  api-retry-delay: "1000"  # 1 second
+  
+  # WebSocket Configuration
+  websocket-ping-interval: "25000"  # 25 seconds
+  websocket-ping-timeout: "5000"   # 5 seconds
+  websocket-max-connections: "10000"
+  websocket-compression: "true"
+  
+  # Database Configuration
+  db-pool-min: "5"
+  db-pool-max: "20"
+  db-idle-timeout: "30000"  # 30 seconds
+  db-connection-timeout: "60000"  # 1 minute
+  db-query-timeout: "30000"  # 30 seconds
+  
+  # Redis Configuration
+  redis-max-retries: "3"
+  redis-retry-delay: "1000"  # 1 second
+  redis-connect-timeout: "10000"  # 10 seconds
+  redis-command-timeout: "5000"   # 5 seconds
+  
+  # Backup Configuration
+  backup-enabled: "true"
+  backup-schedule: "0 2 * * *"  # Daily at 2 AM
+  backup-retention-days: "30"
+  backup-compression: "true"
+  
+  # Feature Flags
+  feature-tournaments: "true"
+  feature-vip-system: "true"
+  feature-lucky-wheel: "true"
+  feature-subscriptions: "true"
+  feature-social-features: "true"
+  feature-analytics: "true"
+  feature-push-notifications: "true"
+  feature-email-notifications: "true"
+  feature-anti-cheat: "true"
+  feature-real-time-monitoring: "true"
+  
+  # Localization
+  default-language: "en"
+  supported-languages: "en,id,zh,es,pt,fr,de,ja,ko"
+  timezone: "UTC"
+  
+  # Performance Configuration
+  cluster-workers: "{{ .Values.app.env.NUM_WORKERS }}"
+  memory-limit: "{{ .Values.app.resources.limits.memory }}"
+  cpu-limit: "{{ .Values.app.resources.limits.cpu }}"
+  
+  # Development Configuration
+  debug-mode: "false"
+  verbose-logging: "false"
+  profiling-enabled: "false"
+  
+  # Production Configuration
+  compression-enabled: "true"
+  minification-enabled: "true"
+  caching-enabled: "true"
+  ssl-enabled: "true"
+  
+  # Maintenance Configuration
+  maintenance-mode: "false"
+  maintenance-message: "System is under maintenance. Please try again later."
+  maintenance-allowed-ips: "127.0.0.1,::1"

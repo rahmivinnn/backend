@@ -1,0 +1,327 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: higgs-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: higgs_domino
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres123}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./users.sql:/docker-entrypoint-initdb.d/01-users.sql
+      - ./game_sessions.sql:/docker-entrypoint-initdb.d/02-game_sessions.sql
+      - ./transactions.sql:/docker-entrypoint-initdb.d/03-transactions.sql
+      - ./social.sql:/docker-entrypoint-initdb.d/04-social.sql
+      - ./notifications.sql:/docker-entrypoint-initdb.d/05-notifications.sql
+      - ./leaderboards.sql:/docker-entrypoint-initdb.d/06-leaderboards.sql
+      - ./advanced_features.sql:/docker-entrypoint-initdb.d/07-advanced_features.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - higgs-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d higgs_domino"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache and Session Store
+  redis:
+    image: redis:7-alpine
+    container_name: higgs-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis123}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - higgs-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Redis Cluster (for production scaling)
+  redis-cluster:
+    image: redis:7-alpine
+    container_name: higgs-redis-cluster
+    restart: unless-stopped
+    command: >
+      sh -c '
+        redis-server --port 7000 --cluster-enabled yes --cluster-config-file nodes-7000.conf --cluster-node-timeout 5000 --appendonly yes --appendfilename appendonly-7000.aof --dbfilename dump-7000.rdb --logfile /var/log/redis/redis-7000.log --daemonize yes &&
+        redis-server --port 7001 --cluster-enabled yes --cluster-config-file nodes-7001.conf --cluster-node-timeout 5000 --appendonly yes --appendfilename appendonly-7001.aof --dbfilename dump-7001.rdb --logfile /var/log/redis/redis-7001.log --daemonize yes &&
+        redis-server --port 7002 --cluster-enabled yes --cluster-config-file nodes-7002.conf --cluster-node-timeout 5000 --appendonly yes --appendfilename appendonly-7002.aof --dbfilename dump-7002.rdb --logfile /var/log/redis/redis-7002.log
+      '
+    volumes:
+      - redis_cluster_data:/data
+    ports:
+      - "7000-7002:7000-7002"
+    networks:
+      - higgs-network
+    profiles:
+      - cluster
+
+  # Main Application Server
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: higgs-app
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      WEBSOCKET_PORT: 3001
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: higgs_domino
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-postgres123}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
+      JWT_SECRET: ${JWT_SECRET:-your_jwt_secret_here}
+      CLUSTER_MODE: false
+    volumes:
+      - app_logs:/app/logs
+      - app_uploads:/app/uploads
+    ports:
+      - "3000:3000"
+      - "3001:3001"
+      - "9090:9090"
+    networks:
+      - higgs-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Load Balancer (Nginx)
+  nginx:
+    image: nginx:alpine
+    container_name: higgs-nginx
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - higgs-network
+    depends_on:
+      - app
+    profiles:
+      - production
+
+  # Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: higgs-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - higgs-network
+    profiles:
+      - monitoring
+
+  # Grafana Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: higgs-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin123}
+      GF_USERS_ALLOW_SIGN_UP: false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    ports:
+      - "3001:3000"
+    networks:
+      - higgs-network
+    depends_on:
+      - prometheus
+    profiles:
+      - monitoring
+
+  # ElasticSearch for Logging
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.8.0
+    container_name: higgs-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - higgs-network
+    profiles:
+      - logging
+
+  # Kibana for Log Visualization
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.8.0
+    container_name: higgs-kibana
+    restart: unless-stopped
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    networks:
+      - higgs-network
+    depends_on:
+      - elasticsearch
+    profiles:
+      - logging
+
+  # Logstash for Log Processing
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.8.0
+    container_name: higgs-logstash
+    restart: unless-stopped
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./logstash/config:/usr/share/logstash/config:ro
+      - app_logs:/var/log/app:ro
+    networks:
+      - higgs-network
+    depends_on:
+      - elasticsearch
+    profiles:
+      - logging
+
+  # MinIO for File Storage
+  minio:
+    image: minio/minio:latest
+    container_name: higgs-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin123}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - higgs-network
+    profiles:
+      - storage
+
+  # Backup Service
+  backup:
+    image: postgres:15-alpine
+    container_name: higgs-backup
+    restart: "no"
+    environment:
+      PGPASSWORD: ${DB_PASSWORD:-postgres123}
+    volumes:
+      - backup_data:/backup
+      - ./scripts:/scripts:ro
+    networks:
+      - higgs-network
+    depends_on:
+      - postgres
+    command: >
+      sh -c '
+        echo "0 2 * * * /scripts/backup.sh" | crontab - &&
+        crond -f
+      '
+    profiles:
+      - backup
+
+  # Development Tools
+  adminer:
+    image: adminer:latest
+    container_name: higgs-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    networks:
+      - higgs-network
+    depends_on:
+      - postgres
+    profiles:
+      - development
+
+  # Redis Commander
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: higgs-redis-commander
+    restart: unless-stopped
+    environment:
+      REDIS_HOSTS: local:redis:6379:0:${REDIS_PASSWORD:-redis123}
+    ports:
+      - "8081:8081"
+    networks:
+      - higgs-network
+    depends_on:
+      - redis
+    profiles:
+      - development
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  redis_cluster_data:
+    driver: local
+  app_logs:
+    driver: local
+  app_uploads:
+    driver: local
+  nginx_logs:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+  minio_data:
+    driver: local
+  backup_data:
+    driver: local
+
+networks:
+  higgs-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

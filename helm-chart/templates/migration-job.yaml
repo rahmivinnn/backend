@@ -1,0 +1,93 @@
+{{- if .Values.app.migration.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "higgs-domino.fullname" . }}-migration-{{ .Values.app.image.tag | default .Chart.AppVersion }}
+  labels:
+    {{- include "higgs-domino.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.app.migration.backoffLimit | default 3 }}
+  activeDeadlineSeconds: {{ .Values.app.migration.activeDeadlineSeconds | default 600 }}
+  template:
+    metadata:
+      labels:
+        {{- include "higgs-domino.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migration
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      restartPolicy: Never
+      {{- with .Values.app.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "higgs-domino.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.app.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:15-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h {{ include "higgs-domino.postgresql.host" . }} -p {{ include "higgs-domino.postgresql.port" . }} -U {{ include "higgs-domino.postgresql.username" . }}; do
+                echo "Waiting for PostgreSQL..."
+                sleep 2
+              done
+              echo "PostgreSQL is ready!"
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "higgs-domino.secretName" . }}
+                  key: database-password
+      containers:
+        - name: migration
+          securityContext:
+            {{- toYaml .Values.app.securityContext | nindent 12 }}
+          image: "{{ .Values.app.image.repository }}:{{ .Values.app.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.app.image.pullPolicy }}
+          command:
+            - npm
+            - run
+            - migrate
+          env:
+            - name: NODE_ENV
+              value: {{ .Values.app.env | quote }}
+            - name: DATABASE_HOST
+              value: {{ include "higgs-domino.postgresql.host" . | quote }}
+            - name: DATABASE_PORT
+              value: {{ include "higgs-domino.postgresql.port" . | quote }}
+            - name: DATABASE_NAME
+              value: {{ include "higgs-domino.postgresql.database" . | quote }}
+            - name: DATABASE_USER
+              value: {{ include "higgs-domino.postgresql.username" . | quote }}
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "higgs-domino.secretName" . }}
+                  key: database-password
+            - name: DATABASE_URL
+              value: "postgresql://$(DATABASE_USER):$(DATABASE_PASSWORD)@$(DATABASE_HOST):$(DATABASE_PORT)/$(DATABASE_NAME)"
+          resources:
+            {{- toYaml .Values.app.migration.resources | nindent 12 }}
+      {{- with .Values.app.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

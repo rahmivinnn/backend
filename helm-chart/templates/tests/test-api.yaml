@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "higgs-domino.fullname" . }}-test-api"
+  labels:
+    {{- include "higgs-domino.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  {{- with .Values.app.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  containers:
+    - name: api-test
+      image: curlimages/curl:8.4.0
+      command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          
+          BASE_URL="http://{{ include "higgs-domino.fullname" . }}:{{ .Values.app.service.port }}"
+          
+          echo "Testing API endpoints..."
+          
+          # Test health endpoint
+          echo "Testing health endpoint..."
+          curl -f -s "$BASE_URL/health" | grep -q "ok" || exit 1
+          echo "✓ Health endpoint working"
+          
+          # Test API info endpoint
+          echo "Testing API info endpoint..."
+          curl -f -s "$BASE_URL/api/v1/info" | grep -q "version" || exit 1
+          echo "✓ API info endpoint working"
+          
+          # Test metrics endpoint (if enabled)
+          {{- if .Values.app.config.metricsEnabled }}
+          echo "Testing metrics endpoint..."
+          curl -f -s "$BASE_URL/metrics" | grep -q "nodejs_" || exit 1
+          echo "✓ Metrics endpoint working"
+          {{- end }}
+          
+          # Test WebSocket endpoint availability
+          echo "Testing WebSocket endpoint availability..."
+          curl -f -s -I "$BASE_URL/socket.io/" | grep -q "200\|404" || exit 1
+          echo "✓ WebSocket endpoint accessible"
+          
+          echo "All API tests passed!"
+      resources:
+        limits:
+          cpu: 100m
+          memory: 128Mi
+        requests:
+          cpu: 50m
+          memory: 64Mi

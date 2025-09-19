@@ -1,0 +1,280 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "higgs-domino.fullname" . }}
+  labels:
+    {{- include "higgs-domino.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.app.autoscaling.enabled }}
+  replicas: {{ .Values.app.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "higgs-domino.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.app.service.ports.http }}"
+        prometheus.io/path: "/metrics"
+      labels:
+        {{- include "higgs-domino.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.app.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "higgs-domino.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.app.podSecurityContext | nindent 8 }}
+      
+      # Init containers
+      initContainers:
+        # Wait for PostgreSQL
+        - name: wait-for-postgres
+          image: postgres:15-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h {{ include "higgs-domino.postgresql.host" . }} -p {{ include "higgs-domino.postgresql.port" . }} -U {{ include "higgs-domino.postgresql.username" . }}; do
+                echo "Waiting for PostgreSQL..."
+                sleep 2
+              done
+              echo "PostgreSQL is ready!"
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "higgs-domino.secretName" . }}
+                  key: db-password
+          securityContext:
+            {{- toYaml .Values.app.securityContext | nindent 12 }}
+        
+        # Wait for Redis
+        - name: wait-for-redis
+          image: redis:7-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until redis-cli -h {{ include "higgs-domino.redis.host" . }} -p {{ include "higgs-domino.redis.port" . }} {{- if .Values.redis.auth.enabled }} -a $REDIS_PASSWORD {{- end }} ping; do
+                echo "Waiting for Redis..."
+                sleep 2
+              done
+              echo "Redis is ready!"
+          {{- if .Values.redis.auth.enabled }}
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "higgs-domino.secretName" . }}
+                  key: redis-password
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.app.securityContext | nindent 12 }}
+      
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.app.securityContext | nindent 12 }}
+          image: "{{ .Values.app.image.registry }}/{{ .Values.app.image.repository }}:{{ .Values.app.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.app.image.pullPolicy }}
+          
+          ports:
+            - name: http
+              containerPort: {{ .Values.app.service.ports.http }}
+              protocol: TCP
+            - name: websocket
+              containerPort: {{ .Values.app.service.ports.websocket }}
+              protocol: TCP
+          
+          # Health checks
+          livenessProbe:
+            {{- toYaml .Values.app.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.app.readinessProbe | nindent 12 }}
+          startupProbe:
+            {{- toYaml .Values.app.startupProbe | nindent 12 }}
+          
+          # Environment variables
+          env:
+            # Application config
+            - name: NODE_ENV
+              value: {{ .Values.app.env.NODE_ENV | quote }}
+            - name: PORT
+              value: {{ .Values.app.env.PORT | quote }}
+            - name: WEBSOCKET_PORT
+              value: {{ .Values.app.env.WEBSOCKET_PORT | quote }}
+            - name: CLUSTER_MODE
+              value: {{ .Values.app.env.CLUSTER_MODE | quote }}
+            - name: NUM_WORKERS
+              value: {{ .Values.app.env.NUM_WORKERS | quote }}
+            
+            # Database config
+            - name: DB_HOST
+              value: {{ include "higgs-domino.postgresql.host" . | quote }}
+            - name: DB_PORT
+              value: {{ include "higgs-domino.postgresql.port" . | quote }}
+            - name: DB_NAME
+              value: {{ include "higgs-domino.postgresql.database" . | quote }}
+            - name: DB_USER
+              value: {{ include "higgs-domino.postgresql.username" . | quote }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "higgs-domino.secretName" . }}
+                  key: db-password
+            
+            # Redis config
+            - name: REDIS_HOST
+              value: {{ include "higgs-domino.redis.host" . | quote }}
+            - name: REDIS_PORT
+              value: {{ include "higgs-domino.redis.port" . | quote }}
+            {{- if .Values.redis.auth.enabled }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "higgs-domino.secretName" . }}
+                  key: redis-password
+            {{- end }}
+            
+            # JWT config
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "higgs-domino.secretName" . }}
+                  key: jwt-secret
+            - name: JWT_EXPIRES_IN
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "higgs-domino.fullname" . }}
+                  key: jwt-expires-in
+            
+            # Payment config
+            - name: STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "higgs-domino.secretName" . }}
+                  key: stripe-secret-key
+            - name: PAYPAL_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "higgs-domino.secretName" . }}
+                  key: paypal-client-secret
+            
+            # Email config
+            - name: EMAIL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "higgs-domino.secretName" . }}
+                  key: email-password
+            
+            # Firebase config
+            - name: FIREBASE_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "higgs-domino.secretName" . }}
+                  key: firebase-private-key
+            
+            # Additional config from ConfigMap
+            - name: RATE_LIMIT_WINDOW_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "higgs-domino.fullname" . }}
+                  key: rate-limit-window-ms
+            - name: RATE_LIMIT_MAX_REQUESTS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "higgs-domino.fullname" . }}
+                  key: rate-limit-max-requests
+            - name: BCRYPT_ROUNDS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "higgs-domino.fullname" . }}
+                  key: bcrypt-rounds
+            - name: SESSION_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "higgs-domino.fullname" . }}
+                  key: session-timeout
+            - name: CACHE_TTL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "higgs-domino.fullname" . }}
+                  key: cache-ttl
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "higgs-domino.fullname" . }}
+                  key: log-level
+            - name: METRICS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "higgs-domino.fullname" . }}
+                  key: metrics-enabled
+            - name: HEALTH_CHECK_INTERVAL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "higgs-domino.fullname" . }}
+                  key: health-check-interval
+          
+          # Resource limits
+          resources:
+            {{- toYaml .Values.app.resources | nindent 12 }}
+          
+          # Volume mounts
+          volumeMounts:
+            {{- if .Values.app.volumes.logs.enabled }}
+            - name: logs
+              mountPath: /app/logs
+            {{- end }}
+            {{- if .Values.app.volumes.uploads.enabled }}
+            - name: uploads
+              mountPath: /app/uploads
+            {{- end }}
+            - name: tmp
+              mountPath: /tmp
+            - name: var-cache
+              mountPath: /var/cache
+            - name: var-run
+              mountPath: /var/run
+      
+      # Volumes
+      volumes:
+        {{- if .Values.app.volumes.logs.enabled }}
+        - name: logs
+          persistentVolumeClaim:
+            claimName: {{ include "higgs-domino.fullname" . }}-logs
+        {{- end }}
+        {{- if .Values.app.volumes.uploads.enabled }}
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: {{ include "higgs-domino.fullname" . }}-uploads
+        {{- end }}
+        - name: tmp
+          emptyDir: {}
+        - name: var-cache
+          emptyDir: {}
+        - name: var-run
+          emptyDir: {}
+      
+      # Node selection
+      {{- with .Values.app.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      
+      # Affinity
+      {{- with .Values.app.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      
+      # Tolerations
+      {{- with .Values.app.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

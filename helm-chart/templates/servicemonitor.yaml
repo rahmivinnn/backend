@@ -1,0 +1,36 @@
+{{- if and .Values.app.serviceMonitor.enabled .Values.prometheus.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "higgs-domino.fullname" . }}
+  labels:
+    {{- include "higgs-domino.labels" . | nindent 4 }}
+    {{- with .Values.app.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.app.serviceMonitor.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "higgs-domino.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      path: {{ .Values.app.serviceMonitor.path | default "/metrics" }}
+      interval: {{ .Values.app.serviceMonitor.interval | default "30s" }}
+      scrapeTimeout: {{ .Values.app.serviceMonitor.scrapeTimeout | default "10s" }}
+      {{- with .Values.app.serviceMonitor.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.app.serviceMonitor.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- with .Values.app.serviceMonitor.namespaceSelector }}
+  namespaceSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,108 @@
+1. Get the application URL by running these commands:
+{{- if .Values.app.ingress.enabled }}
+{{- range $host := .Values.app.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.app.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else if contains "NodePort" .Values.app.service.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "higgs-domino.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.app.service.type }}
+     NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+           You can watch the status of by running 'kubectl get --namespace {{ .Release.Namespace }} svc -w {{ include "higgs-domino.fullname" . }}'
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "higgs-domino.fullname" . }} --template "{{ "{{" }} range (index .status.loadBalancer.ingress 0) {{ "}}" }}{{ "{{" }}.{{ "}}" }}{{ "{{" }} end {{ "}}" }}")
+  echo http://$SERVICE_IP:{{ .Values.app.service.port }}
+{{- else if contains "ClusterIP" .Values.app.service.type }}
+  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "higgs-domino.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
+  export CONTAINER_PORT=$(kubectl get pod --namespace {{ .Release.Namespace }} $POD_NAME -o jsonpath="{.spec.containers[0].ports[0].containerPort}")
+  echo "Visit http://127.0.0.1:8080 to use your application"
+  kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 8080:$CONTAINER_PORT
+{{- end }}
+
+2. Check the status of your deployment:
+   kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "higgs-domino.name" . }},app.kubernetes.io/instance={{ .Release.Name }}"
+
+3. View application logs:
+   kubectl logs --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "higgs-domino.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -f
+
+4. Health check endpoints:
+   - Health: /health
+   - API Info: /api/v1/info
+{{- if .Values.app.config.metricsEnabled }}
+   - Metrics: /metrics
+{{- end }}
+
+{{- if .Values.postgresql.enabled }}
+5. Connect to PostgreSQL:
+   kubectl run {{ include "higgs-domino.fullname" . }}-postgresql-client --rm --tty -i --restart='Never' --namespace {{ .Release.Namespace }} --image postgres:15-alpine --env="PGPASSWORD=$POSTGRES_PASSWORD" --command -- psql --host {{ include "higgs-domino.postgresql.host" . }} -U {{ include "higgs-domino.postgresql.username" . }} -d {{ include "higgs-domino.postgresql.database" . }} -p {{ include "higgs-domino.postgresql.port" . }}
+{{- end }}
+
+{{- if .Values.redis.enabled }}
+6. Connect to Redis:
+   kubectl run {{ include "higgs-domino.fullname" . }}-redis-client --rm --tty -i --restart='Never' --namespace {{ .Release.Namespace }} --image redis:7-alpine --command -- redis-cli -h {{ include "higgs-domino.redis.host" . }} -p {{ include "higgs-domino.redis.port" . }}{{- if .Values.redis.auth.enabled }} -a $REDIS_PASSWORD{{- end }}
+{{- end }}
+
+{{- if .Values.prometheus.enabled }}
+7. Access Prometheus:
+   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-prometheus-server 9090:80
+   Then visit http://127.0.0.1:9090
+{{- end }}
+
+{{- if .Values.grafana.enabled }}
+8. Access Grafana:
+   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-grafana 3000:80
+   Then visit http://127.0.0.1:3000
+   
+   Get Grafana admin password:
+   kubectl get secret --namespace {{ .Release.Namespace }} {{ .Release.Name }}-grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
+{{- end }}
+
+{{- if .Values.app.autoscaling.enabled }}
+9. Monitor autoscaling:
+   kubectl get hpa --namespace {{ .Release.Namespace }} {{ include "higgs-domino.fullname" . }}
+{{- end }}
+
+{{- if .Values.app.migration.enabled }}
+10. Check migration status:
+    kubectl get jobs --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/component=migration"
+{{- end }}
+
+{{- if .Values.app.backup.enabled }}
+11. Check backup jobs:
+    kubectl get cronjobs --namespace {{ .Release.Namespace }} {{ include "higgs-domino.fullname" . }}-backup
+    kubectl get jobs --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/component=backup"
+{{- end }}
+
+12. Run tests:
+    helm test {{ .Release.Name }} --namespace {{ .Release.Namespace }}
+
+13. Useful commands:
+    # Scale the application
+    kubectl scale --namespace {{ .Release.Namespace }} deployment {{ include "higgs-domino.fullname" . }} --replicas=5
+    
+    # Restart the application
+    kubectl rollout restart --namespace {{ .Release.Namespace }} deployment {{ include "higgs-domino.fullname" . }}
+    
+    # Check resource usage
+    kubectl top pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "higgs-domino.name" . }}"
+
+{{- if .Values.app.env | eq "production" }}
+⚠️  PRODUCTION DEPLOYMENT NOTES:
+- Ensure all secrets are properly configured
+- Monitor resource usage and adjust limits as needed
+- Set up proper backup and disaster recovery procedures
+- Configure monitoring and alerting
+- Review security settings and network policies
+{{- else }}
+🚀 DEVELOPMENT DEPLOYMENT NOTES:
+- This is a development deployment
+- Some security features may be relaxed
+- Debug logging may be enabled
+- Consider using production values for staging/production
+{{- end }}
+
+For more information, visit: https://github.com/your-org/higgs-domino
+Documentation: https://docs.higgs-domino.com
+Support: support@higgs-domino.com

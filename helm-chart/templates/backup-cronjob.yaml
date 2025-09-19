@@ -1,0 +1,148 @@
+{{- if .Values.app.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "higgs-domino.fullname" . }}-backup
+  labels:
+    {{- include "higgs-domino.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ .Values.app.backup.schedule | quote }}
+  concurrencyPolicy: {{ .Values.app.backup.concurrencyPolicy | default "Forbid" }}
+  successfulJobsHistoryLimit: {{ .Values.app.backup.successfulJobsHistoryLimit | default 3 }}
+  failedJobsHistoryLimit: {{ .Values.app.backup.failedJobsHistoryLimit | default 1 }}
+  startingDeadlineSeconds: {{ .Values.app.backup.startingDeadlineSeconds | default 300 }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.app.backup.backoffLimit | default 2 }}
+      activeDeadlineSeconds: {{ .Values.app.backup.activeDeadlineSeconds | default 3600 }}
+      template:
+        metadata:
+          labels:
+            {{- include "higgs-domino.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: OnFailure
+          {{- with .Values.app.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          serviceAccountName: {{ include "higgs-domino.serviceAccountName" . }}
+          securityContext:
+            {{- toYaml .Values.app.podSecurityContext | nindent 12 }}
+          containers:
+            - name: backup
+              securityContext:
+                {{- toYaml .Values.app.securityContext | nindent 16 }}
+              image: postgres:15-alpine
+              imagePullPolicy: IfNotPresent
+              command:
+                - sh
+                - -c
+                - |
+                  set -e
+                  
+                  # Create backup directory
+                  mkdir -p /backup
+                  
+                  # Generate backup filename with timestamp
+                  BACKUP_FILE="/backup/higgs-domino-$(date +%Y%m%d-%H%M%S).sql"
+                  
+                  echo "Starting database backup to $BACKUP_FILE"
+                  
+                  # Create database backup
+                  pg_dump -h $DATABASE_HOST -p $DATABASE_PORT -U $DATABASE_USER -d $DATABASE_NAME \
+                    --verbose --clean --if-exists --create --format=custom \
+                    --file="$BACKUP_FILE"
+                  
+                  # Compress backup
+                  gzip "$BACKUP_FILE"
+                  BACKUP_FILE="$BACKUP_FILE.gz"
+                  
+                  echo "Backup completed: $BACKUP_FILE"
+                  echo "Backup size: $(du -h $BACKUP_FILE | cut -f1)"
+                  
+                  # Upload to S3 if configured
+                  {{- if .Values.app.backup.s3.enabled }}
+                  echo "Uploading backup to S3..."
+                  aws s3 cp "$BACKUP_FILE" "s3://{{ .Values.app.backup.s3.bucket }}/{{ .Values.app.backup.s3.prefix | default "backups" }}/$(basename $BACKUP_FILE)"
+                  echo "Backup uploaded to S3"
+                  {{- end }}
+                  
+                  # Clean up old local backups
+                  find /backup -name "*.sql.gz" -mtime +{{ .Values.app.backup.retention.days | default 7 }} -delete
+                  
+                  echo "Backup process completed successfully"
+              env:
+                - name: DATABASE_HOST
+                  value: {{ include "higgs-domino.postgresql.host" . | quote }}
+                - name: DATABASE_PORT
+                  value: {{ include "higgs-domino.postgresql.port" . | quote }}
+                - name: DATABASE_NAME
+                  value: {{ include "higgs-domino.postgresql.database" . | quote }}
+                - name: DATABASE_USER
+                  value: {{ include "higgs-domino.postgresql.username" . | quote }}
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "higgs-domino.secretName" . }}
+                      key: database-password
+                {{- if .Values.app.backup.s3.enabled }}
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "higgs-domino.secretName" . }}
+                      key: aws-access-key-id
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "higgs-domino.secretName" . }}
+                      key: aws-secret-access-key
+                - name: AWS_DEFAULT_REGION
+                  value: {{ .Values.app.backup.s3.region | default "us-east-1" | quote }}
+                {{- end }}
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backup
+              resources:
+                {{- toYaml .Values.app.backup.resources | nindent 16 }}
+          volumes:
+            - name: backup-storage
+              {{- if .Values.app.backup.persistence.enabled }}
+              persistentVolumeClaim:
+                claimName: {{ include "higgs-domino.fullname" . }}-backup
+              {{- else }}
+              emptyDir: {}
+              {{- end }}
+          {{- with .Values.app.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.app.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.app.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+{{- if .Values.app.backup.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "higgs-domino.fullname" . }}-backup
+  labels:
+    {{- include "higgs-domino.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.app.backup.persistence.size | default "10Gi" }}
+  {{- if .Values.app.backup.persistence.storageClass }}
+  storageClassName: {{ .Values.app.backup.persistence.storageClass | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}
